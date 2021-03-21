@@ -1,92 +1,69 @@
-const express= require('express')
-const app=express()
-const https = require('https')
-const fetch=require('node-fetch')
-const cookieParser=require('cookie-parser')
-const session=require('express-session')
-const flash=require('express-flash')
-const {check,validationResult}=require('express-validator')
-const myBodyParser= require('./middlewares/MyBodyParser')
-
-app.use(myBodyParser)
-app.use(cookieParser('mvm'));
-app.use(session({ cookie: { maxAge: 60000 }}));
-app.use(flash());
-
-const validator=[
-    check('name').exists().withMessage('Vui lòng nhập tên')
-        .notEmpty().withMessage('Tên không được để trống')
-        .isLength({min:3}).withMessage('Tên phải có tối thiểu 3 ký tự')
-        .isLength({max:15}).withMessage('Tên chỉ có tối đa 15 ký tự'),
-
-    check('gender').exists().withMessage('Vui lòng chọn giới tính'),
-    check('email').notEmpty().withMessage('Email không được để trống')
-        .isEmail().withMessage('Đây không phải email hợp lệ')
-]
-
+const express = require('express')
+const app = express()
+const cors = require('cors')
+const bodyParser = require('body-parser')
+const passport = require('passport');
+const router=require('./routes')
+const fetch = require('node-fetch');
+const cookieSession = require('cookie-session')
+require('./passport-setup');
+app.use(cors())
 app.set('view engine','ejs')
-
-
-app.get('/',(req,res)=>{
-    const request = https.request({
-        hostname:'web-nang-cao.herokuapp.com',
-        path:'/lab5/users',
-        port:443,
-        method:'GET'
-    },response => {
-        let body=''
-        response.on('data',d=>body+=d.toString())
-        response.on('end',()=>{
-            const users=JSON.parse(body)
-            res.render('index',{users})
-
-        })
-        response.on('error',e=>console.log(e))
-    })
-
-    request.on('error',e=>console.log(e))
-    request.end()
-})
-app.get('/add',(req,res)=>{
-    let error= req.flash('error')
-    let name= req.flash('name')
-    let age= req.flash('age')
-    let email= req.flash('email')
-    res.render('add',{error,email,age,name})
-})
-
-app.post('/add',validator,(req,res)=>{
-    const result=validationResult(req)
-    const {name,age,email}=req.body
-    if (result.errors.length>0){
-        req.flash('error',result.errors[0].msg)
-        req.flash('name',name)
-        req.flash('age',age)
-        req.flash('email',email)
-        res.redirect('/add')
+app.use(bodyParser.urlencoded({ extended: false }))
+app.use(bodyParser.json())
+app.use(cookieSession({
+    name: 'hungduy-session',
+    keys: ['key1', 'key2']
+  }))
+const isLoggedIn = (req, res, next) => {
+    if (req.user) {
+        next();
+    } else {
+        res.redirect('/login');
     }
+}
 
+let today=new Date()
 
-})
+app.use(passport.initialize());
+app.use(passport.session());
+app.use('/auth',router)
 
-app.post('/delete/:id',(req, res) =>{
-    if(!req.params.id){
-        return res.json({code:1,message:'Invalid ID'})
+app.get('/login', (req, res)=>{
+    if(req.user){
+        res.redirect('/')
+    }else {
+        res.render('login')
     }
-    const id=req.params.id
-    fetch('https://web-nang-cao.herokuapp.com/lab5/users/'+id,{
-        method:'DELETE'
-    })
-        .then(res=>res.json())
-        .then(json=>{
-            console.log(json)
-            return res.json(json)
-
-        })
-        .catch(e=>{
-            console.log(e)
-            return res.json({code:2,message:e.message})
-        })
 })
 
-app.listen(process.env.PORT,()=>console.log('http://localhost:8080'))
+
+app.get('/logout', (req, res) => {
+    req.session = null;
+    req.logout();
+    res.redirect('/login');
+})
+const  SERVER1= 'https://api.openweathermap.org/data/2.5/weather?appid=e89c7405a5f0c2f6ac5d813233606e24&units=metric&q=saigon&fbclid=IwAR13gqiFabeJbkIARHOXFgH3ZD1j6r97xdZhvyNSvH8ti1GdxHzk__1Zg0s';
+const  SERVER2= 'https://api.openweathermap.org/data/2.5/weather?appid=e89c7405a5f0c2f6ac5d813233606e24&units=metric&q=hanoi&fbclid=IwAR13gqiFabeJbkIARHOXFgH3ZD1j6r97xdZhvyNSvH8ti1GdxHzk__1Zg0s';
+
+
+app.get('/', isLoggedIn, (req, res) => {
+        Promise.all([
+            fetch(SERVER1),
+            fetch(SERVER2)
+        ]).then(function (responses) {
+            return Promise.all(responses.map(function (response) {
+                return response.json();
+            }));
+        }).then(function (data) {
+            console.log(today)
+            res.render('index', {dataHCM: data[0], date: today, dataHN: data[1], user: req.user})
+        }).catch(function (error) {
+            console.log(error);
+        });
+
+})
+
+
+
+app.listen(4000, () => console.log('http://localhost:4000'))
